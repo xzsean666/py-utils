@@ -9,7 +9,12 @@ __author__ = "xzsean666"
 
 # Import key utilities here for convenient access
 from . import db_utils
+from . import messages
+from .messages import SlackMessageBase, SlackWebhookError
 
 __all__ = [
     "db_utils",
+    "messages",
+    "SlackMessageBase",
+    "SlackWebhookError",
 ]
