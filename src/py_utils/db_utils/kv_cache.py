@@ -18,23 +18,52 @@ F = TypeVar("F", bound=Callable[..., Any])
 class KVDatabase(Protocol[T]):
     """Minimal protocol for key-value stores used by cache decorator."""
 
-    def get(self, key: str, ttl: Optional[int] = None) -> Optional[T]:
-        ...
+    def get(self, key: str, ttl: Optional[int] = None) -> Optional[T]: ...
 
-    def put(self, key: str, value: T) -> None:
-        ...
+    def put(self, key: str, value: T) -> None: ...
 
 
-def _make_cache_key(func_name: str, prefix: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+def _make_cache_key(
+    func_name: str, prefix: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> str:
     try:
+        # 对于实例方法，args[0] 是 self，我们需要排除它
+        # 因为 self 对象在序列化时可能无法正确区分不同的实例
+        # 我们只使用其他参数和 kwargs 来生成缓存键
+        # 这样确保 user_id 等参数能被正确包含在缓存键中
+        cache_args = args
+        if args:
+            first_arg = args[0]
+            # 检查是否是实例方法：第一个参数不是基本类型，且有 __class__ 属性
+            is_instance_method = hasattr(first_arg, "__class__") and not isinstance(
+                first_arg, (str, int, float, bool, type(None), list, dict, tuple)
+            )
+
+            if is_instance_method:
+                # 完全排除 self，只使用其他参数
+                # 这样 kwargs 中的 user_id 等参数会被正确包含
+                cache_args = args[1:] if len(args) > 1 else ()
+
         payload = json.dumps(
-            [args, kwargs],
+            [cache_args, kwargs],
             default=_json_fallback,
             separators=(",", ":"),
             sort_keys=True,
         )
     except Exception:
-        payload = repr((args, kwargs))
+        # 如果序列化失败，使用 repr，但也要处理实例方法
+        if args:
+            first_arg = args[0]
+            is_instance_method = hasattr(first_arg, "__class__") and not isinstance(
+                first_arg, (str, int, float, bool, type(None), list, dict, tuple)
+            )
+            if is_instance_method:
+                cache_args = args[1:] if len(args) > 1 else ()
+                payload = repr((cache_args, kwargs))
+            else:
+                payload = repr((args, kwargs))
+        else:
+            payload = repr((args, kwargs))
 
     base = f"{prefix}:{func_name}:{payload}" if prefix else f"{func_name}:{payload}"
     return base[:255]
